@@ -1,0 +1,134 @@
+import numpy as np
+
+FILE = "Budget_Tracker2026.csv"
+categories = ["Entertainment", "Travel", "Shopping", "Stationary",
+              "Food", "Bills", "Health", "Education", "Other"]
+months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+# category: (chance of spending on a day, average amount)
+params = {
+    "Entertainment": (0.25, 450), "Travel": (0.06, 1800),
+    "Shopping": (0.15, 1200), "Stationary": (0.05, 250),
+    "Food": (0.90, 220), "Bills": (0.0, 2500),
+    "Health": (0.04, 700), "Education": (0.03, 900),
+    "Other": (0.10, 300),
+}
+
+
+def create_dataset():
+    """Make 365 days x 9 categories of daily spending and save as CSV."""
+    rng = np.random.default_rng(42)
+    dates = np.arange("2026-01-01", "2027-01-01", dtype="datetime64[D]")
+    n = len(dates)
+    weekend = (dates.astype(int) + 3) % 7 >= 5
+    day_of_month = (dates - dates.astype("datetime64[M]")).astype(int) + 1
+    data = np.zeros((n, len(categories)))
+
+    for j, cat in enumerate(categories):
+        prob, mean = params[cat]
+        if cat == "Bills":
+            mask = day_of_month == 5          # bills on 5th of every month
+        else:
+            p = np.where(weekend & (cat in ("Entertainment", "Shopping")), prob * 1.8, prob)
+            mask = rng.random(n) < p
+        amt = rng.normal(mean, mean * 0.3, n).clip(min=mean * 0.2).round(2)
+        data[:, j] = amt * mask
+
+    out = np.column_stack([dates.astype(str), data.round(2)])
+    np.savetxt(FILE, out, delimiter=",", fmt="%s",
+               header="date," + ",".join(categories), comments="")
+    print(f"Dataset created: {FILE}")
+
+
+def load_dataset():
+    dates = np.loadtxt(FILE, delimiter=",", skiprows=1, usecols=0, dtype=str)
+    data = np.loadtxt(FILE, delimiter=",", skiprows=1,
+                      usecols=range(1, len(categories) + 1))
+    return dates, data
+
+
+def ask_int(prompt, low, high):
+    while True:
+        try:
+            v = int(input(prompt))
+            if low <= v <= high:
+                return v
+        except ValueError:
+            pass
+        print(f"Enter a number between {low} and {high}.")
+
+
+def pick_category():
+    for i, c in enumerate(categories, 1):
+        print(f"  {i}. {c}")
+    return ask_int("Category number: ", 1, len(categories)) - 1
+
+
+def pick_month():
+    for i, m in enumerate(months, 1):
+        print(f"  {i}. {m}", end="")
+    print()
+    return ask_int("Month number: ", 1, 12) - 1
+
+
+# ---------------- main ----------------
+create_dataset()
+
+dates, data = load_dataset()
+month_idx = dates.astype("datetime64[M]").astype(int) % 12
+
+while True:
+    print("\n===== 2026 EXPENSE DATA =====")
+    print("1. Yearly total for a category")
+    print("2. Month-wise spending for a category")
+    print("3. Full report for a month")
+    print("4. Spending on a specific date")
+    print("5. Full year summary")
+    print("0. Exit")
+    ch = ask_int("What do you want to know? ", 0, 5)
+
+    if ch == 0:
+        print("Bye!")
+        break
+
+    elif ch == 1:
+        c = pick_category()
+        col = data[:, c]
+        print(f"\n{categories[c]} yearly total: {col.sum():.2f}")
+        print(f"Average per day : {col.mean():.2f}")
+        print(f"Highest spending day: {dates[np.argmax(col)]} ({col.max():.2f})")
+
+    elif ch == 2:
+        c = pick_category()
+        print(f"\n{categories[c]} - month wise")
+        for m in range(12):
+            print(f"{months[m]:<4}{data[month_idx == m, c].sum():>10.2f}")
+
+    elif ch == 3:
+        m = pick_month()
+        part = data[month_idx == m]
+        print(f"\n{months[m]} 2026 report")
+        for j, cat in enumerate(categories):
+            print(f"{cat:<15}{part[:, j].sum():>10.2f}")
+        print(f"{'TOTAL':<15}{part.sum():>10.2f}")
+
+    elif ch == 4:
+        d = input("Date (YYYY-MM-DD, e.g. 2026-03-15): ").strip()
+        idx = np.where(dates == d)[0]
+        if len(idx) == 0:
+            print("This date is not in the dataset.")
+        else:
+            row = data[idx[0]]
+            print(f"\nSpending on {d}")
+            for j, cat in enumerate(categories):
+                print(f"{cat:<15}{row[j]:>10.2f}")
+            print(f"{'TOTAL':<15}{row.sum():>10.2f}")
+
+    elif ch == 5:
+        totals = data.sum(axis=0)
+        print("\nFull year summary")
+        for j, cat in enumerate(categories):
+            print(f"{cat:<15}{totals[j]:>12.2f}  ({totals[j] / totals.sum() * 100:5.1f}%)")
+        print(f"{'TOTAL':<15}{totals.sum():>12.2f}")
+        print(f"Most expensive month: {months[np.argmax([data[month_idx == m].sum() for m in range(12)])]}")
